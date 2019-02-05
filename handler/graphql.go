@@ -170,6 +170,7 @@ func GraphQL(exec graphql.ExecutableSchema, options ...Option) http.HandlerFunc 
 				err := r.ParseForm()
 				if err != nil {
 					sendErrorf(w, http.StatusBadRequest, "form could not be decoded", err.Error())
+					return
 				}
 				reqParams.Query = r.Form.Get("query")
 				reqParams.OperationName = r.Form.Get("operationName")
