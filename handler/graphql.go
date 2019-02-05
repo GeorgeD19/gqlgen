@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -110,6 +111,24 @@ func RequestMiddleware(middleware graphql.RequestMiddleware) Option {
 	}
 }
 
+func HasContentType(r *http.Request, mimetype string) bool {
+	contentType := r.Header.Get("Content-Type")
+	if contentType == "" {
+		return mimetype == "application/octet-stream"
+	}
+
+	for _, v := range strings.Split(contentType, ",") {
+		t, _, err := mime.ParseMediaType(v)
+		if err != nil {
+			break
+		}
+		if t == mimetype {
+			return true
+		}
+	}
+	return false
+}
+
 func GraphQL(exec graphql.ExecutableSchema, options ...Option) http.HandlerFunc {
 	cfg := Config{
 		upgrader: websocket.Upgrader{
@@ -147,9 +166,24 @@ func GraphQL(exec graphql.ExecutableSchema, options ...Option) http.HandlerFunc 
 				}
 			}
 		case http.MethodPost:
-			if err := jsonDecode(r.Body, &reqParams); err != nil {
-				sendErrorf(w, http.StatusBadRequest, "json body could not be decoded: "+err.Error())
-				return
+			if HasContentType(r, "multipart/form-data") {
+				err := r.ParseForm()
+				if err != nil {
+					sendErrorf(w, http.StatusBadRequest, "form could not be decoded", err.Error())
+				}
+				reqParams.Query = r.Form.Get("query")
+				reqParams.OperationName = r.Form.Get("operationName")
+				if variables := r.Form.Get("variables"); variables != "" {
+					if err := jsonDecode(strings.NewReader(variables), &reqParams.Variables); err != nil {
+						sendErrorf(w, http.StatusBadRequest, "variables could not be decoded")
+						return
+					}
+				}
+			} else {
+				if err := jsonDecode(r.Body, &reqParams); err != nil {
+					sendErrorf(w, http.StatusBadRequest, "json body could not be decoded: "+err.Error())
+					return
+				}
 			}
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
